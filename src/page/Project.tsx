@@ -70,7 +70,14 @@ export default function Project() {
   }
 
   return (
-    <main className="min-h-screen bg-background px-6 py-8">
+    <main className="min-h-screen bg-background px-6 py-8 relative">
+      Back to dashboard link here
+      <Button variant="destructive"  className=" fixed top-4 left-4" onClick={() => window.history.back()}>
+        &larr; Back to Dashboard
+      </Button>
+
+
+
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <section className="flex flex-col gap-4 rounded-lg border bg-card p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
@@ -83,7 +90,7 @@ export default function Project() {
             variant="outline"
             className="w-full sm:w-auto"
             onClick={() => {
-              
+
             }}
           >
             Open VS Code
@@ -102,15 +109,30 @@ export default function Project() {
                   <Label>Build command</Label>
                   <p className="truncate text-sm text-muted-foreground">{project.build_command}</p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    navigator.clipboard.writeText(project.build_command || "");
-                  }}
-                >
-                  Copy
-                </Button>
+
+                <div className="flex flex-row gap-1.5">
+
+                   <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                    }}
+                  >
+                    Run
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(project.build_command || "");
+                    }}
+                  >
+                    Copy
+                  </Button>
+
+                </div>
+
               </div>
 
               <div className="flex items-center justify-between gap-4 rounded-md border p-4">
@@ -118,15 +140,30 @@ export default function Project() {
                   <Label>Flash command</Label>
                   <p className="truncate text-sm text-muted-foreground">{project.flash_command}</p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    navigator.clipboard.writeText(project.flash_command || "");
-                  }}
-                >
-                  Copy
-                </Button>
+
+                 <div className="flex flex-row gap-1.5">
+
+                   <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                    }}
+                  >
+                    Run
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(project.flash_command || "");
+                    }}
+                  >
+                    Copy
+                  </Button>
+
+                </div>
+               
               </div>
             </CardContent>
           </Card>

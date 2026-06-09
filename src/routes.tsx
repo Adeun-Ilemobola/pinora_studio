@@ -1,5 +1,6 @@
 
 import DashboardPage from "@/page/DashboardPage";
+import Project from "@/page/Project";
 import { createBrowserRouter } from "react-router-dom";
 
 
@@ -7,12 +8,10 @@ export const router = createBrowserRouter([
     {
         path: "/",
         element: <DashboardPage />,
-        children: [
-            {
-                path: "project/:projectId",
-                element: <div>Project Details Page (to be implemented)</div>,
-                
-            }
-        ],
+       
+    },
+    {
+        path: "/project/:projectId",
+        element: <Project />,
     }
 ])
