@@ -16,11 +16,17 @@ type ProjectOut = {
   flash_command: string;
   git_status: boolean;
 };
-
+type GitHubItem = {
+  name: string,
+  path: string,
+  item_type: string,
+  download_url: string
+}
 export default function Project() {
   const { projectId } = useParams<{ projectId: string }>();
   const [project, setProject] = useState<ProjectOut | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [modules, setModules] = useState<GitHubItem[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -32,6 +38,8 @@ export default function Project() {
         const projectData = await invoke<ProjectOut>("get_project_configs", {
           id: projectId,
         });
+        const listOfModules = await invoke<GitHubItem[]>("load_available_modules");
+        setModules(listOfModules);
         setProject(projectData);
       } catch (error) {
         console.error("Failed to load project data:", error);
@@ -43,6 +51,38 @@ export default function Project() {
 
     loadProject();
   }, [projectId]);
+
+
+  function modulesFiller(text: string) {
+    if (modules.length === 0) {
+      return modules.map((module) => {
+        return (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              navigator.clipboard.writeText(`mod ${module.name.replace(".rs", "")};`);
+            }}
+          >
+            {module.name}
+          </Button>
+        );
+      });
+    }
+    return modules.filter((module) => module.name.includes(text)).map((module) => {
+      return (
+       <Button
+        variant="outline"
+        size="sm"
+        onClick={() => {
+          navigator.clipboard.writeText(`mod ${module.name.replace(".rs", "")};`);
+        }}
+      >
+        {module.name}
+      </Button>
+      );
+    });
+  }
 
   if (isLoading) {
     return (
@@ -72,7 +112,7 @@ export default function Project() {
   return (
     <main className="min-h-screen bg-background px-6 py-8 relative">
       Back to dashboard link here
-      <Button variant="destructive"  className=" fixed top-4 left-4" onClick={() => window.history.back()}>
+      <Button variant="destructive" className=" fixed top-4 left-4" onClick={() => window.history.back()}>
         &larr; Back to Dashboard
       </Button>
 
@@ -112,7 +152,7 @@ export default function Project() {
 
                 <div className="flex flex-row gap-1.5">
 
-                   <Button
+                  <Button
                     variant="outline"
                     size="sm"
                     onClick={() => {
@@ -141,9 +181,9 @@ export default function Project() {
                   <p className="truncate text-sm text-muted-foreground">{project.flash_command}</p>
                 </div>
 
-                 <div className="flex flex-row gap-1.5">
+                <div className="flex flex-row gap-1.5">
 
-                   <Button
+                  <Button
                     variant="outline"
                     size="sm"
                     onClick={() => {
@@ -163,7 +203,7 @@ export default function Project() {
                   </Button>
 
                 </div>
-               
+
               </div>
             </CardContent>
           </Card>
@@ -228,8 +268,8 @@ export default function Project() {
                       </Button>
                     </div>
 
-                    <div className="min-h-20 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-                      Module results will appear here.
+                    <div className="min-h-20 rounded-md border border-dashed p-4 text-sm text-muted-foreground flex flex-row gap-2 flex-wrap">
+                      {modulesFiller("")}
                     </div>
                   </TabsContent>
                 </Tabs>

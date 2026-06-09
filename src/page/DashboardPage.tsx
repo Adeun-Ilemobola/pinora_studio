@@ -28,6 +28,7 @@ type ProjectProgress = {
     total: number;
 };
 
+
 type ProjectIn = {
     name: string;
     id: string;
@@ -74,7 +75,7 @@ export default function DashboardPage() {
         if (!createProjectForm.name || !createProjectForm.path) return;
 
         const project = await invoke<ProjectIn>("create_project", {
-            name: createProjectForm.name,
+            name: createProjectForm.name.toLowerCase().replace(/\s+/g, "_"),
             path: createProjectForm.path,
         });
 

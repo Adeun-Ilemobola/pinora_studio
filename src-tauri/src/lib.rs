@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use tauri::Emitter;
+use reqwest::header::{ACCEPT, USER_AGENT};
 
 
 #[derive(Serialize)]
@@ -10,6 +11,14 @@ struct ProjectIn {
     id: String,
     name: String,
     path: String,
+}
+#[derive(Serialize, Deserialize , Debug)]
+pub struct GitHubItem{
+    name : String,
+    path : String,
+    #[serde(rename = "type")]
+    item_type : String,
+    download_url : Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone , Deserialize)]
@@ -19,6 +28,7 @@ struct ProjectConfig {
     id: String,
     build_command: String,
     flash_command: String,
+    install_components: Vec<String>,
 }
 
 
@@ -30,6 +40,7 @@ struct ProjectOut {
     path: String,
     build_command: String,
     flash_command: String,
+    install_components: Vec<String>,
     git_status: bool,
 }
 
@@ -159,6 +170,7 @@ fn get_project_configs(id: &str) -> Result<ProjectOut, String> {
                     path: proj.project_path,
                     build_command: proj.build_command,
                     flash_command: proj.flash_command,
+                    install_components: proj.install_components,
                     git_status: has_git
                 };
 
@@ -172,7 +184,32 @@ fn get_project_configs(id: &str) -> Result<ProjectOut, String> {
    
 }
 
+#[tauri::command]
+async fn load_available_modules() -> Result<Vec<GitHubItem>, String> {
+     let url = "https://api.github.com/repos/Adeun-Ilemobola/rust_esp32_based/contents/src/module?ref=main";
 
+    let client = reqwest::Client::new();
+
+    let modules: Vec<GitHubItem> = client
+        .get(url)
+        .header(USER_AGENT, "tauri-scaffolding-app")
+        .header(ACCEPT, "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|err| err.to_string())?
+        .json::<Vec<GitHubItem>>()
+        .await
+        .map_err(|err| err.to_string())?
+        .into_iter()
+        .filter(|item| item.item_type == "file" && item.name.ends_with(".rs") && item.name != "mod.rs" && item.name != "ModuleCore.rs")
+        
+        .collect();
+
+    println!("Fetched modules: {:?}", modules);
+        
+    Ok(modules)
+
+}
 
 
 
@@ -186,7 +223,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, create_project, load_data, get_project_configs])
+        .invoke_handler(tauri::generate_handler![greet, create_project, load_data, get_project_configs, load_available_modules])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
