@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,12 +23,20 @@ type GitHubItem = {
   item_type: string,
   download_url: string
 }
+type StaticProjectProgress = {
+    message: String,
+    is_loading: boolean,
+    is_Error: boolean,
+    is_Complete: boolean,
+}
+
 export default function Project() {
   const { projectId } = useParams<{ projectId: string }>();
   const [project, setProject] = useState<ProjectOut | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [modules, setModules] = useState<GitHubItem[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [buildProgress, setBuildProgress] = useState<StaticProjectProgress | null>(null);
 
   useEffect(() => {
     async function loadProject() {
@@ -49,7 +58,24 @@ export default function Project() {
       }
     }
 
+    const buildListener = listen<StaticProjectProgress>("build_progress", (event) => {
+      const { message, is_loading, is_Error, is_Complete } = event.payload;
+      console.log("Build Progress Update:", message, is_loading, is_Error, is_Complete);
+      setBuildProgress({ message, is_loading, is_Error, is_Complete });
+      if (is_Complete ) {
+        setTimeout(() => {
+          setBuildProgress(null);
+        }, 5000); // Clear the message after 5 seconds
+
+      }
+      
+    });
+
     loadProject();
+
+     return () => {
+      buildListener.then((unlisten) => unlisten());
+     }
   }, [projectId]);
 
 
@@ -129,8 +155,8 @@ export default function Project() {
           <Button
             variant="outline"
             className="w-full sm:w-auto"
-            onClick={() => {
-
+            onClick={async () => {
+              await invoke("open_in_vscode", { path: project.path });
             }}
           >
             Open VS Code
@@ -155,10 +181,12 @@ export default function Project() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => {
+                    onClick={async () => {
+                      if (buildProgress?.is_loading) return;
+                      await invoke("run_build_command", { command: project.build_command });
                     }}
                   >
-                    Run
+                    {buildProgress?.is_loading ? "Running..." : "Run"}
                   </Button>
 
                   <Button
@@ -186,7 +214,8 @@ export default function Project() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => {
+                    onClick={async () => {
+                      await invoke("run_flash_command", { command: project.flash_command });
                     }}
                   >
                     Run

@@ -1,10 +1,9 @@
+use reqwest::header::{ACCEPT, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use tauri::Emitter;
-use reqwest::header::{ACCEPT, USER_AGENT};
-
 
 #[derive(Serialize)]
 struct ProjectIn {
@@ -12,16 +11,16 @@ struct ProjectIn {
     name: String,
     path: String,
 }
-#[derive(Serialize, Deserialize , Debug)]
-pub struct GitHubItem{
-    name : String,
-    path : String,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GitHubItem {
+    name: String,
+    path: String,
     #[serde(rename = "type")]
-    item_type : String,
-    download_url : Option<String>,
+    item_type: String,
+    download_url: Option<String>,
 }
 
-#[derive(Debug, Serialize, Clone , Deserialize)]
+#[derive(Debug, Serialize, Clone, Deserialize)]
 struct ProjectConfig {
     project_name: String,
     project_path: String,
@@ -30,7 +29,6 @@ struct ProjectConfig {
     flash_command: String,
     install_components: Vec<String>,
 }
-
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,9 +42,25 @@ struct ProjectOut {
     git_status: bool,
 }
 
-
-#[derive(Serialize , Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct ProjectProgress {
+    stage: String,
+    message: String,
+    current: u8,
+    total: u8,
+}
+
+
+#[derive(Serialize, Deserialize)]
+
+struct  StaticProjectProgress {
+    message: String,
+    is_loading: bool,
+    is_Error: bool,
+    is_Complete: bool,
+}
+#[derive(Serialize, Deserialize)]
+struct ProjectBuildProgress {
     stage: String,
     message: String,
     current: u8,
@@ -59,7 +73,64 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+#[tauri::command]
+fn run_build_command(app: tauri::AppHandle,path: String) -> Result<(), String> {
 
+    app.emit("build-progress", &StaticProjectProgress {
+        message: "Starting build...".into(),
+        is_loading: true,
+        is_Error: false,
+        is_Complete: false,
+    }).map_err(|err| err.to_string())?;
+
+
+    let output = Command::new("cliEsp")
+        .arg("build")
+        .current_dir(path)
+        .output() 
+        .map_err(|err| err.to_string())?;
+    if !output.status.success() {
+        app.emit("build-progress", &StaticProjectProgress {
+            message: "Build failed. Please check the terminal for details.".into(),
+            is_loading: false,
+            is_Error: true,
+            is_Complete: false,
+        }).map_err(|err| err.to_string())?;
+        return Err(format!(
+            "Failed to run build command: {}",
+            String::from_utf8_lossy(&output.stderr)        ));
+    }
+    app.emit("build-progress", &StaticProjectProgress {
+        message: "Build completed successfully.".into(),
+        is_loading: false,
+        is_Error: false,
+        is_Complete: true,
+    }).map_err(|err| err.to_string())?;
+    Ok(())
+
+}
+
+#[tauri::command]
+fn open_vs_code(path: String) -> Result<StaticProjectProgress, String> {
+   let output = Command::new("bash")
+        .arg("-c")
+        .arg(". ~/export-esp.sh && code .")
+        .output()
+        .map_err(|err| err.to_string())?;
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to open VS Code: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+
+    }
+    Ok(StaticProjectProgress {
+        message: "VS Code opened successfully.".into(),
+        is_loading: false,
+        is_Error: false,
+        is_Complete: true,
+    })
+}
 
 #[tauri::command]
 fn create_project(app: tauri::AppHandle, name: String, path: String) -> Result<(), String> {
@@ -73,10 +144,7 @@ fn create_project(app: tauri::AppHandle, name: String, path: String) -> Result<(
         .spawn()
         .map_err(|err| err.to_string())?;
 
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or("Failed to capture CLI output")?;
+    let stdout = child.stdout.take().ok_or("Failed to capture CLI output")?;
 
     let reader = BufReader::new(stdout);
 
@@ -103,11 +171,9 @@ fn create_project(app: tauri::AppHandle, name: String, path: String) -> Result<(
     }
 }
 
-
 #[tauri::command]
 fn load_data() -> Result<Vec<ProjectIn>, String> {
-    let home_dir = dirs::home_dir()
-        .ok_or("Failed to get home directory")?;
+    let home_dir = dirs::home_dir().ok_or("Failed to get home directory")?;
 
     let db_path = home_dir.join("esp_rust_projects.json");
 
@@ -115,11 +181,10 @@ fn load_data() -> Result<Vec<ProjectIn>, String> {
         return Ok(Vec::new());
     }
 
-    let db_content = std::fs::read_to_string(&db_path)
-        .map_err(|err| err.to_string())?;
+    let db_content = std::fs::read_to_string(&db_path).map_err(|err| err.to_string())?;
 
-    let data: Vec<ProjectConfig> = serde_json::from_str(&db_content)
-        .map_err(|err| err.to_string())?;
+    let data: Vec<ProjectConfig> =
+        serde_json::from_str(&db_content).map_err(|err| err.to_string())?;
 
     let projects: Vec<ProjectIn> = data
         .into_iter()
@@ -133,10 +198,8 @@ fn load_data() -> Result<Vec<ProjectIn>, String> {
     Ok(projects)
 }
 
-
 fn get_project_by_id(id: &str) -> Result<ProjectConfig, String> {
-    let home_dir = dirs::home_dir()
-        .ok_or("Failed to get home directory")?;
+    let home_dir = dirs::home_dir().ok_or("Failed to get home directory")?;
 
     let db_path = home_dir.join("esp_rust_projects.json");
 
@@ -144,11 +207,10 @@ fn get_project_by_id(id: &str) -> Result<ProjectConfig, String> {
         return Err("No projects found".to_string());
     }
 
-    let db_content = std::fs::read_to_string(&db_path)
-        .map_err(|err| err.to_string())?;
+    let db_content = std::fs::read_to_string(&db_path).map_err(|err| err.to_string())?;
 
-    let data: Vec<ProjectConfig> = serde_json::from_str(&db_content)
-        .map_err(|err| err.to_string())?;
+    let data: Vec<ProjectConfig> =
+        serde_json::from_str(&db_content).map_err(|err| err.to_string())?;
 
     data.into_iter()
         .find(|project| project.id == id)
@@ -157,36 +219,31 @@ fn get_project_by_id(id: &str) -> Result<ProjectConfig, String> {
 
 #[tauri::command]
 fn get_project_configs(id: &str) -> Result<ProjectOut, String> {
-
     let project = get_project_by_id(id);
 
-        match project {
-            Ok(proj) => {
-                 let git_dir = PathBuf::from(&proj.project_path).join(".git");
-                let has_git = git_dir.exists();
-                let  project_out = ProjectOut {
-                    id: proj.id,
-                    name: proj.project_name,
-                    path: proj.project_path,
-                    build_command: proj.build_command,
-                    flash_command: proj.flash_command,
-                    install_components: proj.install_components,
-                    git_status: has_git
-                };
+    match project {
+        Ok(proj) => {
+            let git_dir = PathBuf::from(&proj.project_path).join(".git");
+            let has_git = git_dir.exists();
+            let project_out = ProjectOut {
+                id: proj.id,
+                name: proj.project_name,
+                path: proj.project_path,
+                build_command: proj.build_command,
+                flash_command: proj.flash_command,
+                install_components: proj.install_components,
+                git_status: has_git,
+            };
 
-                Ok(project_out)
-               
-             
-            },
-            Err(err) => Err(err.clone()),
+            Ok(project_out)
         }
-
-   
+        Err(err) => Err(err.clone()),
+    }
 }
 
 #[tauri::command]
 async fn load_available_modules() -> Result<Vec<GitHubItem>, String> {
-     let url = "https://api.github.com/repos/Adeun-Ilemobola/rust_esp32_based/contents/src/module?ref=main";
+    let url = "https://api.github.com/repos/Adeun-Ilemobola/rust_esp32_based/contents/src/module?ref=main";
 
     let client = reqwest::Client::new();
 
@@ -201,29 +258,33 @@ async fn load_available_modules() -> Result<Vec<GitHubItem>, String> {
         .await
         .map_err(|err| err.to_string())?
         .into_iter()
-        .filter(|item| item.item_type == "file" && item.name.ends_with(".rs") && item.name != "mod.rs" && item.name != "ModuleCore.rs")
-        
+        .filter(|item| {
+            item.item_type == "file"
+                && item.name.ends_with(".rs")
+                && item.name != "mod.rs"
+                && item.name != "ModuleCore.rs"
+        })
         .collect();
 
     println!("Fetched modules: {:?}", modules);
-        
+
     Ok(modules)
-
 }
-
-
-
-
-
-
-
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, create_project, load_data, get_project_configs, load_available_modules])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            create_project,
+            load_data,
+            get_project_configs,
+            load_available_modules ,
+            run_build_command,
+            open_vs_code
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
