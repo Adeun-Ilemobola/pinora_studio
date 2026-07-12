@@ -1,308 +1,320 @@
 import { useEffect, useState } from "react";
+import z from "zod"
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Link } from "react-router";
-import { FolderOpen, Plus, Search } from "lucide-react";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
+import { Link } from "react-router";
+import { FolderOpen, Icon, PiIcon, Plus, Search } from "lucide-react";
+import {
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+} from "@/components/ui/empty"
 import { Button } from "@/components/ui/button";
 import {
     Card,
     CardContent,
 } from "@/components/ui/card";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog";
+    Drawer,
+    DrawerClose,
+    DrawerContent,
+    DrawerDescription,
+    DrawerFooter,
+    DrawerHeader,
+    DrawerTitle,
+    DrawerTrigger,
+} from "@/components/ui/drawer"
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { toast } from "sonner";
+
+
+
+type RustMessage ={
+      status: boolean,
+     text: string,
+}
+type ProgressType = "Started" | "Step" | "Finished" | "Failed" | "Complete";
+type ProgressTypeMode = "create" | "flash" | null;
 
 type ProjectProgress = {
-    stage: string;
-    message: string;
-    current: number;
-    total: number;
+    task: string,
+    stage: ProgressType,
+    message: string,
+    detail: string,
+    step: number,
+    total: number,
 };
 
 
 type ProjectIn = {
     name: string;
     id: string;
-    path: string;
+    firmware_path: string;
+    ui_path: string
 };
+const zMakeProject = z.object({
+    name: z.string().min(4),
+    path: z.string().min(15)
+})
 
 export default function DashboardPage() {
-    const [createProjectForm, setCreateProjectForm] = useState({
+    const [dataBase, setDataBase] = useState<ProjectIn[]>([])
+    const [project, setProject] = useState<ProjectIn | null>(null)
+    const [progress, setProgress] = useState<{ mode: ProgressTypeMode, progressData: ProjectProgress[] }>({
+        mode: null,
+        progressData: []
+    })
+    const [portList, setPortList] = useState<string[]>(["None"])
+    const [mainPort, setMainPort] = useState<string>("None")
+    const [search, setSearch] = useState("")
+    const [createForm, setCreateForm] = useState<z.infer<typeof zMakeProject>>({
         name: "",
-        path: "",
-    });
-    const [projects, setProjects] = useState<ProjectIn[]>([]);
-    const [showForm, setShowForm] = useState(false);
-    const [progress, setProgress] = useState<ProjectProgress | null>(null);
+        path: ""
+    })
+    const [showCreateForm, setShowCreateForm] = useState(false)
+
+
+    function ProgressHandle(P: ProjectProgress, m: string) {
+        setProgress(state => ({
+            mode: m as ProgressTypeMode,
+            progressData: [...state.progressData, P]
+        }))
+
+    }
+
+
+
 
     useEffect(() => {
-        async function loadProjects() {
-            const projects = await invoke<ProjectIn[]>("load_data");
-            setProjects(projects);
+        invoke<ProjectIn[]>("load_data").then(data => {
+            setDataBase(data)
+        })
+
+        const alllisten = async () => {
+
+            const unlistenCreate = await listen<ProjectProgress>('listen_create', (event) => {
+                console.log(`Got error, payload: ${event.payload}`);
+                ProgressHandle(event.payload, "create")
+            });
+            const unlistenFlash = await listen<ProjectProgress>('listen_flash ', (event) => {
+                console.log(`Got error, payload: ${event.payload}`);
+                ProgressHandle(event.payload, "flash")
+            });
+
+
+
+            return [unlistenCreate, unlistenFlash]
+
         }
 
-        loadProjects();
-
-        const unlistenPromise = listen<ProjectProgress>(
-            "project-progress",
-            (event) => {
-                setProgress(event.payload);
-
-                if (event.payload.current >= event.payload.total) {
-                    setProgress(null);
-                    setCreateProjectForm({ name: "", path: "" });
-                    setShowForm(false);
-                    loadProjects();
-                }
-            },
-        );
 
         return () => {
-            unlistenPromise.then((unlisten) => unlisten());
+            alllisten().then(list => {
+                list.forEach(fu => {
+                    fu()
+                })
+            })
         };
+
     }, []);
 
-    async function handleCreateProject() {
-        if (!createProjectForm.name || !createProjectForm.path) return;
 
-        const project = await invoke<ProjectIn>("create_project", {
-            name: createProjectForm.name.toLowerCase().replace(/\s+/g, "_"),
-            path: createProjectForm.path,
-        });
 
-        const newProject: ProjectIn = {
-            id: project.id,
-            name: project.name,
-            path: project.path,
-        };
+    async function start_Create() {
+        const valid = zMakeProject.safeParse(createForm)
 
-        setProjects([...projects, newProject]);
-        setCreateProjectForm({ name: "", path: "" });
-        setShowForm(false);
+        if (!valid.success) {
+            const err = z.flattenError(valid.error)
+            err.formErrors.forEach(item => {
+
+            })
+            return
+
+        }
+        const data = valid.data
+        await invoke("create_project", { name: data.name, path: data.path })
+
+
     }
 
-    async function selectFolder() {
-        const selectedPath = await open({
+
+
+
+    function build_project(id: string) {
+
+    }
+
+    function project_flash(id: string) {
+
+    }
+    async function open_select_directory() {
+        const directory = await open({
             directory: true,
             multiple: false,
-            title: "Select a Folder",
         });
 
-        if (!selectedPath) return;
+        if (directory) {
+            setCreateForm(state => ({
+                ...state,
+                path: directory
+            }))
+            console.log("Selected directory:", directory);
+        } else {
+            console.error("failed to select directory:", directory);
+        }
 
-        setCreateProjectForm({
-            ...createProjectForm,
-            path: selectedPath as string,
-        });
+    }
+    function openSide(id: string) {
+        const get_project = dataBase.find(item => item.id === id);
+        if (!get_project) {
+
+            return
+        }
+        setProject(get_project)
+    }
+    function closeSide() {
+        setProject(null)
     }
 
-    const progressPercent = progress && progress.total > 0
-        ? ((progress.current / progress.total) * 100).toFixed(2)
-        : "0.00";
+
+
 
     return (
-        <main className="min-h-screen bg-background text-foreground">
-            <section className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-8">
-                <header className="flex flex-col gap-4 rounded-2xl border bg-card p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-                    <div className="space-y-1">
-                        <p className="text-sm font-medium text-muted-foreground">
-                            Project Dashboard
-                        </p>
-                        <h1 className="text-3xl font-bold tracking-tight">
-                            Your projects
-                        </h1>
-                        <p className="max-w-2xl text-sm text-muted-foreground">
-                            Create, open, and manage your scaffolded projects from one place.
-                        </p>
-                    </div>
+        <main className="min-h-screen bg-background text-foreground  flex flex-col gap-5">
 
-                    <Button
-                        size="lg"
-                        className="w-full sm:w-auto"
-                        onClick={() => setShowForm(true)}
-                    >
-                        <Plus className="mr-2 size-4" />
-                        Create New Project
-                    </Button>
-                </header>
+            <header className=" flex flex-row-reverse gap-1.5 p-6 items-center">
+                <Button size={"lg"}>
+                    Create
+                </Button>
 
-                {projects.length > 0 ? (
-                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                        {projects.map((project) => (
-                            <ProjectCard key={project.id} {...project} />
-                        ))}
-                    </div>
-                ) : (
-                    <EmptyProjectsState onCreateProject={() => setShowForm(true)} />
-                )}
+            </header>
+
+            <section className={` flex p-4 flex-1 flex-row gap-3 ${dataBase.length === 0 && " items-center justify-center"}`}>
+                {dataBase.length === 0 ?
+                    (<>
+                        <Empty>
+                            <EmptyHeader>
+                                <EmptyMedia variant="icon">
+                                    <PiIcon />
+                                </EmptyMedia>
+                                <EmptyTitle>No data</EmptyTitle>
+                                <EmptyDescription>No data found</EmptyDescription>
+                            </EmptyHeader>
+                            <EmptyContent>
+                                <Button>Add data</Button>
+                            </EmptyContent>
+                        </Empty>
+
+
+                    </>)
+                    :
+                    (<>
+                        {dataBase.map(content => (<ProjectCard key={content.id} info={content} Expand={openSide} />))}
+
+
+                    </>)
+                }
+
             </section>
 
-            {progress && (
-                <div className="fixed bottom-6 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-xl border bg-card p-4 shadow-lg">
-                    <div className="flex items-start justify-between gap-4">
-                        <div className="space-y-1">
-                            <p className="text-sm font-semibold">{progress.stage}</p>
-                            <p className="text-sm text-muted-foreground">
-                                {progress.message}
-                            </p>
-                        </div>
 
-                        <p className="shrink-0 text-sm font-medium text-muted-foreground">
-                            {progress.current}/{progress.total}
-                        </p>
-                    </div>
 
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-                        <div
-                            className="h-full rounded-full bg-primary transition-all"
-                            style={{ width: `${progressPercent}%` }}
-                        />
-                    </div>
-                </div>
-            )}
+            <Drawer
+            
+                onClose={() => {
+                    closeSide()
 
-            <Dialog open={showForm} onOpenChange={setShowForm}>
-                <DialogContent className="sm:max-w-lg">
-                    <DialogHeader>
-                        <DialogTitle>Create a new project</DialogTitle>
-                        <DialogDescription>
-                            Add a project name and choose the folder where the project should be created.
-                        </DialogDescription>
-                    </DialogHeader>
+                }}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setProject(null);
+                    }
+                }}
+                open={project != null}
+                direction="right"
+            >
 
-                    <div className="grid gap-5 py-4">
-                        <div className="grid gap-2">
-                            <Label htmlFor="name">Project name</Label>
-                            <Input
-                                id="name"
-                                placeholder="My Awesome Project"
-                                value={createProjectForm.name}
-                                onChange={(event) =>
-                                    setCreateProjectForm({
-                                        ...createProjectForm,
-                                        name: event.target.value,
-                                    })
-                                }
-                            />
-                        </div>
+                <DrawerContent className=" w-[50vw]">
+                    <DrawerHeader>
+                        <DrawerTitle>Are you absolutely sure?</DrawerTitle>
+                        <DrawerDescription>This action cannot be undone.</DrawerDescription>
+                    </DrawerHeader>
+                    <div className="flex-1 overflow-y-auto p-4">{/* Content here */}</div>
+                    <DrawerFooter>
 
-                        <div className="grid gap-2">
-                            <Label htmlFor="path">Project path</Label>
-                            <div className="flex gap-2">
-                                <Input
-                                    id="path"
-                                    placeholder="/path/to/project"
-                                    value={createProjectForm.path}
-                                    readOnly
-                                />
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={selectFolder}
-                                >
-                                    Browse
-                                </Button>
-                            </div>
-                        </div>
+                        <DrawerClose asChild>
+                            <Button variant="outline">Cancel</Button>
+                        </DrawerClose>
+                    </DrawerFooter>
+                </DrawerContent>
+            </Drawer>
 
-                        {progress && (
-                            <div className="rounded-xl border bg-muted/40 p-4">
-                                <div className="flex items-center justify-between gap-4">
-                                    <div>
-                                        <p className="text-sm font-medium">{progress.stage}</p>
-                                        <p className="text-sm text-muted-foreground">
-                                            {progress.message}
-                                        </p>
-                                    </div>
-
-                                    <p className="text-lg font-semibold">
-                                        {progressPercent}%
-                                    </p>
-                                </div>
-
-                                <div className="mt-3 h-2 overflow-hidden rounded-full bg-background">
-                                    <div
-                                        className="h-full rounded-full bg-primary transition-all"
-                                        style={{ width: `${progressPercent}%` }}
-                                    />
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    <DialogFooter>
-                        <Button
-                            className="w-full sm:w-auto"
-                            onClick={handleCreateProject}
-                            disabled={!createProjectForm.name || !createProjectForm.path}
-                        >
-                            Create Project
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </main>
     );
 }
+type ProjectCardProp = {
+    Expand: (id: string) => void,
+    info: ProjectIn
 
-function EmptyProjectsState({ onCreateProject }: { onCreateProject: () => void }) {
-    return (
-        <Card className="flex min-h-[420px] items-center justify-center border-dashed">
-            <CardContent className="flex max-w-md flex-col items-center gap-4 p-8 text-center">
-                <div className="rounded-full bg-muted p-4">
-                    <Search className="size-10 text-muted-foreground" />
-                </div>
-
-                <div className="space-y-1">
-                    <h2 className="text-xl font-semibold">No projects found</h2>
-                    <p className="text-sm text-muted-foreground">
-                        Create your first project to get started.
-                    </p>
-                </div>
-
-                <Button onClick={onCreateProject}>
-                    <Plus className="mr-2 size-4" />
-                    Create New Project
-                </Button>
-            </CardContent>
-        </Card>
-    );
 }
 
-function ProjectCard({ name, id, path }: ProjectIn) {
+function ProjectCard({ Expand, info }: ProjectCardProp) {
+
+
+    async function copy_path(path: string) {
+        await writeText(path);
+        toast.success("successfully copied")
+    }
+    async function open_vs_code() {
+
+        const get_root_path = info.firmware_path.replace("/Firmware", "")
+        console.info(`raw path: ${info.firmware_path} new path: ${get_root_path}`)
+        const output = await invoke<RustMessage>("open_vs_code", { path: get_root_path })
+        if (output.status) {
+            toast.success(output.text)
+        }else{
+             toast.success(output.text)
+        }
+
+    }
+
+
     return (
-        <Link to={`/project/${id}`} className="group block">
-            <Card className="h-full transition-colors hover:bg-muted/40">
-                <CardContent className="flex h-full flex-col gap-4 p-5">
-                    <div className="flex items-start gap-3">
-                        <div className="rounded-xl bg-muted p-3">
-                            <FolderOpen className="size-5 text-muted-foreground" />
-                        </div>
+        <Card className=" min-w-2xs h-fit">
+            <CardContent className=" flex flex-col gap-1">
+                <h1 className=" text-3xl font-bold truncate">{info.name}</h1>
 
-                        <div className="min-w-0 flex-1">
-                            <h2 className="truncate text-lg font-semibold tracking-tight">
-                                {name}
-                            </h2>
-                            <p className="mt-1 truncate text-sm text-muted-foreground">
-                                {path}
-                            </p>
-                        </div>
-                    </div>
+                <div className=" flex flex-row gap-2.5 items-center">
+                    <Button size={"sm"} variant={"secondary"} onClick={() => copy_path(info.firmware_path)} >
+                        Firmware path
+                    </Button>
+                    <Button size={"sm"} variant={"secondary"} onClick={() => copy_path(info.ui_path)} >
+                        Ui path
+                    </Button>
+                </div>
+                <Separator />
+                <div className=" flex flex-row-reverse gap-2.5 items-center">
+                    <Button variant={"default"} onClick={() => Expand(info.id)} >
+                        Expand
+                    </Button>
+                    <Button variant={"link"} onClick={() => open_vs_code()} >
+                        open vs code
+                    </Button>
 
-                    <p className="mt-auto truncate rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-                        {id}
-                    </p>
-                </CardContent>
-            </Card>
-        </Link>
-    );
+                </div>
+
+            </CardContent>
+
+        </Card>
+    )
+
+
 }

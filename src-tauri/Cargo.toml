@@ -26,6 +26,8 @@ dirs = "6.0.0"
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 tokio = "1.52.3"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-log = "2"
 [dependencies.uuid]
 version = "1.23.2"
 # Lets you generate random UUIDs

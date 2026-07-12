@@ -4,12 +4,39 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use tauri::Emitter;
+use tauri_plugin_log::{Target, TargetKind};
+
+#[derive(Debug, Serialize, Clone, Copy, Deserialize)]
+pub enum ProgressType {
+    Started,
+    Step,
+    Finished,
+    Failed,
+    Complete,
+}
+
+#[derive(Debug, Serialize, Clone, Deserialize)]
+pub struct ProgressLogShape {
+    pub task: String,
+    pub stage: ProgressType,
+    pub message: String,
+    pub detail: Option<String>,
+    pub step: u32,
+    pub total: u32,
+}
+
+#[derive(Debug, Serialize, Clone, Deserialize)]
+pub struct ReactMessage {
+    pub status: bool,
+    pub text: String,
+}
 
 #[derive(Serialize)]
 struct ProjectIn {
     id: String,
     name: String,
-    path: String,
+    firmware_path: String,
+    ui_path: String,
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GitHubItem {
@@ -21,15 +48,16 @@ pub struct GitHubItem {
 }
 
 #[derive(Debug, Serialize, Clone, Deserialize)]
-struct ProjectConfig {
-    project_name: String,
-    project_path: String,
-    id: String,
-    build_command: String,
-    flash_command: String,
-    install_components: Vec<String>,
+pub struct ProjectConfig {
+    pub project_name: String,
+    // pub project_path: String,
+    pub firmware_path: String,
+    pub ui_path: String,
+    pub id: String,
+    pub build_command: String,
+    pub flash_command: String,
+    pub install_components: Vec<String>,
 }
-
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProjectOut {
@@ -50,10 +78,9 @@ struct ProjectProgress {
     total: u8,
 }
 
-
 #[derive(Serialize, Deserialize)]
 
-struct  StaticProjectProgress {
+struct StaticProjectProgress {
     message: String,
     is_loading: bool,
     is_Error: bool,
@@ -74,61 +101,78 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-fn run_build_command(app: tauri::AppHandle,path: String) -> Result<(), String> {
-
-    app.emit("build-progress", &StaticProjectProgress {
-        message: "Starting build...".into(),
-        is_loading: true,
-        is_Error: false,
-        is_Complete: false,
-    }).map_err(|err| err.to_string())?;
-
+fn run_build_command(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    app.emit(
+        "build-progress",
+        &StaticProjectProgress {
+            message: "Starting build...".into(),
+            is_loading: true,
+            is_Error: false,
+            is_Complete: false,
+        },
+    )
+    .map_err(|err| err.to_string())?;
 
     let output = Command::new("cliEsp")
         .arg("build")
         .current_dir(path)
-        .output() 
-        .map_err(|err| err.to_string())?;
-    if !output.status.success() {
-        app.emit("build-progress", &StaticProjectProgress {
-            message: "Build failed. Please check the terminal for details.".into(),
-            is_loading: false,
-            is_Error: true,
-            is_Complete: false,
-        }).map_err(|err| err.to_string())?;
-        return Err(format!(
-            "Failed to run build command: {}",
-            String::from_utf8_lossy(&output.stderr)        ));
-    }
-    app.emit("build-progress", &StaticProjectProgress {
-        message: "Build completed successfully.".into(),
-        is_loading: false,
-        is_Error: false,
-        is_Complete: true,
-    }).map_err(|err| err.to_string())?;
-    Ok(())
-
-}
-
-#[tauri::command]
-fn open_vs_code(path: String) -> Result<StaticProjectProgress, String> {
-   let output = Command::new("bash")
-        .arg("-c")
-        .arg(". ~/export-esp.sh && code .")
         .output()
         .map_err(|err| err.to_string())?;
     if !output.status.success() {
+        app.emit(
+            "build-progress",
+            &StaticProjectProgress {
+                message: "Build failed. Please check the terminal for details.".into(),
+                is_loading: false,
+                is_Error: true,
+                is_Complete: false,
+            },
+        )
+        .map_err(|err| err.to_string())?;
         return Err(format!(
-            "Failed to open VS Code: {}",
+            "Failed to run build command: {}",
             String::from_utf8_lossy(&output.stderr)
         ));
-
     }
-    Ok(StaticProjectProgress {
-        message: "VS Code opened successfully.".into(),
-        is_loading: false,
-        is_Error: false,
-        is_Complete: true,
+    app.emit(
+        "build-progress",
+        &StaticProjectProgress {
+            message: "Build completed successfully.".into(),
+            is_loading: false,
+            is_Error: false,
+            is_Complete: true,
+        },
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn open_vs_code(path: String) -> Result<ReactMessage, String> {
+    let folder = PathBuf::from(&path);
+
+    if !folder.exists() && !folder.is_dir() {
+         return Ok(ReactMessage {
+            status: false,
+            text: "Folder does not exist".to_string(),
+        });
+    }
+
+    let status = Command::new("code")
+        .arg(path)
+        .status()
+        .map_err(|err| format!("Failed to run VS Code: {}", err))?;
+
+    let success = status.success();
+    let text = if success {
+        "VS Code opened successfully.".to_string()
+    } else {
+        "VS Code failed to open.".to_string()
+    };
+
+    Ok(ReactMessage {
+        status: success,
+        text,
     })
 }
 
@@ -191,7 +235,8 @@ fn load_data() -> Result<Vec<ProjectIn>, String> {
         .map(|project| ProjectIn {
             id: project.id,
             name: project.project_name,
-            path: project.project_path,
+            firmware_path: project.firmware_path,
+            ui_path: project.ui_path,
         })
         .collect();
 
@@ -223,12 +268,12 @@ fn get_project_configs(id: &str) -> Result<ProjectOut, String> {
 
     match project {
         Ok(proj) => {
-            let git_dir = PathBuf::from(&proj.project_path).join(".git");
+            let git_dir = PathBuf::from(&proj.firmware_path).join(".git");
             let has_git = git_dir.exists();
             let project_out = ProjectOut {
                 id: proj.id,
                 name: proj.project_name,
-                path: proj.project_path,
+                path: proj.firmware_path,
                 build_command: proj.build_command,
                 flash_command: proj.flash_command,
                 install_components: proj.install_components,
@@ -274,6 +319,17 @@ async fn load_available_modules() -> Result<Vec<GitHubItem>, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(tauri_plugin_log::log::LevelFilter::Info)
+                .build(),
+        )
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(tauri_plugin_log::log::LevelFilter::Info)
+                .build(),
+        )
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -281,7 +337,7 @@ pub fn run() {
             create_project,
             load_data,
             get_project_configs,
-            load_available_modules ,
+            load_available_modules,
             run_build_command,
             open_vs_code
         ])
