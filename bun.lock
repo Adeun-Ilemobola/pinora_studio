@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "esp_rust_app",
+      "name": "pinora_studio",
       "dependencies": {
         "@fontsource-variable/geist-mono": "^5.2.8",
         "@fontsource-variable/ibm-plex-sans": "^5.2.8",
